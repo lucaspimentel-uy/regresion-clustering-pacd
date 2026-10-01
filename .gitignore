@@ -1,0 +1,9 @@
+.Rhistory
+.RData
+.Rproj.user/
+
+# Fuente pesada (26 MB): se conserva fuera del repo
+data/raw/uru_siniestros_unificado.csv
+
+# Derivados: se regeneran con los scripts
+data/processed/
