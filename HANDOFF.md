@@ -8,8 +8,8 @@ R 4.6.1; paquetes en la biblioteca de usuario (`R_LIBS_USER`). `00_setup.R` fall
 | Paso | Estado | Archivo |
 |---|---|---|
 | 0.a Setup | cerrado | `00_setup.R` |
-| 0.b Fechas | cerrado, **números mostrados al usuario, esperando OK** | `01_fechas.R` |
-| 0.c Siniestros individuales + barrio | pendiente | `02_siniestros_barrio.R` |
+| 0.b Fechas | cerrado (usuario aprobó) | `01_fechas.R` |
+| 0.c Siniestros individuales + barrio | cerrado | `02_siniestros_barrio.R` → `data/processed/siniestros_barrio.rds` |
 | 1 Regresión | pendiente | `03_regresion.R` |
 | 2 Clustering | pendiente | `04_clustering.R` |
 | Extensión día × franja | no empezar hasta cerrar 1 y 2 | — |
@@ -27,10 +27,13 @@ La hipótesis del enunciado (formatos de fecha mezclados / separador tab) **no e
 - Montevideo por año (sin filtrar): 2018 8.109 · 2019 8.109 · 2020 6.533 · 2021 6.921 · 2022 7.683 · 2023 7.902 · 2024 8.422 · 2025 8.748 (total 62.427). Sin meses vacíos.
 - Montevideo en 2021-07-01/2025-12-31: **36.713** (esperado ~36.612; diferencia 101 = 0,28 %). Ver pendientes.
 
-## Pendientes / dudas abiertas
+## Paso 0.c — resultados
 
-- `data/raw/` solo tiene el unificado y el geojson. **Faltan `panel_diario_montevideo.csv` y `siniestros_montevideo.csv`.**
-  El panel existe en `C:\Users\Lucas\Downloads\panel_diario_montevideo.csv` (999 KB); falta confirmar que es el correcto y copiarlo a `data/raw/`.
-  `siniestros_montevideo.csv` (necesario para validar EPSG con lat/lon) **no apareció** en Downloads, Desktop, Documents ni `C:\Proyectos`.
-- Diferencia 36.713 vs 36.612: investigar en 0.c (¿faltantes de X/Y? ¿duplicados? ¿columna `fixed`?). No forzar.
-- `.gitignore` excluye el unificado (26 MB) y `data/processed/`.
+- 36.713 (ventana) − 90 duplicados exactos (11 campos originales idénticos) = 36.623 − 11 sin barrio = **36.612**. Coincide con `siniestros_montevideo.csv`.
+- Los 11 sin barrio: coordenadas (558945, 6150640) ×10 y (558985, 6150535) ×1, Ruta 1 km 22, `Localidad = SIN DATOS`. Quedan fuera de los 62 polígonos → excluidos del `.rds`.
+- **EPSG**: 32721 y 31981 dan error mediano 4 cm / máx 7 cm vs lat/lon conocida; indistinguibles (misma proyección, datum casi igual). Control UTM 20S: 547 km. Se usó 32721. El test descarta la zona equivocada, no separa los dos candidatos.
+- QA: 0 % sin barrio, 62 barrios, min 206 (LA BLANQUEADA), max 1.804 (UNION), mediana 531 — idéntico a la referencia.
+- 6 geometrías de barrio inválidas → `st_make_valid()` (el QA da igual a la referencia).
+- `Tipo`: 1 registro con variante sin tilde `COLISIÓN CON OBSTACULO EN CALZADA` (cae en OTROS igual). 10 tipos `NA`. Gravedad sin `NA`. FATAL sola = 1,2 % (443): `p_grave_fatal` la combina con GRAVE (11,9 %), como pide el enunciado.
+- El `.rds` NO agrupa categorías: el corte 3 % → "OTROS" se aplica en `04_clustering.R`. Trae también `municipio` (por coordenada, desde `siniestros_montevideo.csv`; función exacta de x,y), `lon`/`lat`, `nocturno`, `finde`.
+- `data/raw/` ahora tiene el panel y `siniestros_montevideo.csv`. `.gitignore` excluye el unificado (26 MB) y `data/processed/`.
