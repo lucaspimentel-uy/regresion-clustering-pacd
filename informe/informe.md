@@ -46,9 +46,41 @@ El calendario explica casi todo lo que el modelo logra explicar. Un fin de seman
 
 **Residuos de M1** (`reg_05`). No hay patrón contra los valores ajustados y los residuos por mes y por tipo de día están centrados en cero. La cola derecha es más pesada que la normal (QQ-plot; Shapiro-Wilk p ≈ 4·10⁻⁶): los días con muchos siniestros se subestiman. En conteos se espera que la varianza crezca con la media, pero aquí no se detecta heterocedasticidad (Breusch-Pagan p = 0,11; desvío residual por tercil de ajustado 5,3 / 5,7 / 5,4), probablemente porque los valores ajustados ocupan un rango estrecho (10 a 26, casi todos entre 18 y 26). La varianza residual es 1,3 veces la media, una sobredispersión leve respecto de Poisson. La autocorrelación de lag 1 de los residuos es 0,11, en línea con la deriva al alza que el modelo no recoge. En observados vs. predichos (`reg_06`) las predicciones quedan en franjas verticales, porque el modelo solo tiene variables categóricas, y los días extremos (menos de 12 o más de 35) no se anticipan.
 
-## 4. Clustering
+## 4. Clustering: perfiles de siniestralidad por barrio
 
-*(Pendiente: Paso 2.)*
+**Unidad.** El barrio: 62 observaciones, cada una con el perfil de sus siniestros en todo el período. No se agrupan municipios porque con 8 observaciones el método del codo no es informativo, la silueta es inestable y la partición depende de la semilla; con 62 barrios el análisis es defendible.
+
+**Variables.** Siete proporciones dentro del barrio (no conteos, para que el agrupamiento capture perfil y no volumen): colisión entre vehículos, despiste, atropello de peatón, caída, grave o fatal, nocturno y fin de semana. "OTROS" (obstáculo en calzada, atropello de animales y tipo sin dato; 3,4 % del total) queda afuera para evitar una suma exacta de 1 entre las proporciones de tipo. Solo para caracterizar, fuera del agrupamiento: total de siniestros, municipio dominante del barrio, densidad (siniestros por km²) y, como descriptor adicional, la proporción de siniestros cuya calle comienza con Avenida, Boulevard o Rambla.
+
+**Revisión previa** (`../outputs/figuras/clu_01_histogramas.png`). Sin faltantes. `p_despiste` tiene cola derecha; las demás son aproximadamente simétricas. Los extremos con |z| > 2,5 son nueve valores en nueve barrios distintos (despiste en Lezica Melilla, 16,9 %; atropello de peatón en Tres Cruces y Centro, 24 %; caída en Manga, 21 %) y ninguno parece un error, por lo que no se excluyó ni se modificó nada. Las proporciones están correlacionadas entre sí: colisión con caída −0,78 y con despiste −0,71.
+
+**Estandarización.** Se usó z-score aunque todas sean proporciones: los desvíos entre barrios van de 0,020 (nocturno) a 0,069 (colisión), una razón de 3,4 (11 en varianza). Sin estandarizar, la distancia euclídea quedaría dominada por la colisión.
+
+**Elección de k.** k-means con `nstart = 25` y semilla fija, k = 2 a 10 (`clu_02_codo_silueta.png`).
+
+| k | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|
+| WSS | 297 | 242 | 209 | 185 | 167 | 151 | 136 | 124 | 114 |
+| Silueta | **0,334** | 0,207 | 0,202 | 0,213 | 0,207 | 0,222 | 0,218 | 0,225 | 0,215 |
+
+La silueta tiene un máximo claro en k = 2 y de k = 3 en adelante queda plana en torno a 0,2, por debajo de 0,25 (sin estructura sustancial). El codo **no es nítido**: entre k = 2 y 10 la curva de WSS baja de forma suave. Si se toma como referencia k = 1 (WSS = 427, la variación total), la mayor caída es la de 1 a 2 (130, contra 55 de 2 a 3 y 33 de 3 a 4), de modo que el único codo plausible coincide con la silueta, pero la evidencia del codo por sí sola no alcanzaría para elegir. Se adopta **k = 2**. La partición es idéntica en 30 semillas distintas (Rand ajustado = 1). Con k = 3 el grupo menor se conserva (12 de sus 14 barrios quedan juntos) y el grupo grande se parte en 27 y 21 barrios sin que la silueta mejore.
+
+**Grupos.** Medias por grupo en escala original (proporción de los siniestros del barrio):
+
+| Grupo | Barrios | Colisión | Despiste | Atrop. peatón | Caída | Grave/fatal | Nocturno | Fin de semana |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 48 | 74,4 % | 3,6 % | 11,4 % | 7,5 % | 12,5 % | 13,2 % | 22,6 % |
+| 2 | 14 | 63,1 % | 10,4 % | 8,2 % | 12,9 % | 15,7 % | 14,1 % | 26,0 % |
+
+Grupo 2: Bañados de Carrasco, Capurro Bella Vista, Casabó Pajas Blancas, Colón Centro y Noroeste, Colón Sureste Abayuba, Conciliación, La Paloma Tomkinson, Lezica Melilla, Manga, Manga Toledo Chico, Paso de la Arena, Punta Carretas, Tres Ombúes Pueblo Victoria y Villa García Manga Rural. El grupo 1 reúne los otros 48 (lista completa en `../outputs/tablas/clu_barrios_por_grupo.csv`).
+
+**Lectura cruzada** (`clu_05_mapa.png`). El mapa muestra que el grupo 2 ocupa casi toda la franja rural y periurbana del norte y el oeste; el grupo 1 es la ciudad compacta. La densidad lo confirma: mediana de 44 siniestros/km² en el grupo 2 (rango intercuartil 11–104) contra 237 en el grupo 1 (144–307) (Kruskal-Wallis p < 0,001); el área mediana es 21 contra 2,5 km². Las avenidas pesan más en el grupo 1 (46 % de los siniestros contra 28 %; p = 0,009). El **volumen total no distingue** a los grupos (mediana 592 contra 521; p = 0,59): no es una división de barrios "con muchos" y "con pocos" siniestros. Por municipio, el grupo 2 reúne 4 de los 8 barrios del A, 4 de 7 del G, 2 de 9 del D, 2 de 7 del F, 1 de 13 del C y 1 de 5 del CH, ninguno del B ni del E (Fisher simulado p = 0,044): se asocia con la periferia, pero no coincide con un municipio. La separación tampoco es limpia: varios barrios del grupo 1 (Nuevo París, Punta Rieles, Carrasco Norte, Peñarol, Las Canteras) tienen densidades de 70 a 84 siniestros/km², y dos barrios del grupo 2 (Capurro Bella Vista y Punta Carretas) son urbanos y tienen silueta negativa: no encajan bien en ninguno de los dos grupos. La silueta promedio es 0,36 en el grupo 1 y 0,24 en el grupo 2.
+
+**Interpretación en lenguaje llano.**
+- **Grupo 1, ciudad compacta (48 barrios).** Tres de cada cuatro siniestros son choques entre vehículos y uno de cada nueve es un atropello a un peatón; los despistes son raros (3,6 %). Es el perfil de la trama urbana densa, con mucha interacción entre vehículos y peatones.
+- **Grupo 2, periferia y zona rural (14 barrios, 12 de ellos de baja densidad).** Menos choques entre vehículos y más siniestros de un solo vehículo: el despiste casi se triplica (de 3,6 % a 10,4 %) y las caídas suben de 7,5 % a 12,9 %. También hay algo más de casos graves o fatales (15,7 % contra 12,5 %) y de fin de semana (26 % contra 23 %). Es coherente con vías más abiertas y menos transitadas, pero con estos datos no se puede probar la causa (no hay velocidad, tipo de vía ni vehículo).
+- La proporción nocturna casi no distingue a los grupos (14,1 % contra 13,2 %).
+- Dentro del grupo 1 no aparecen subgrupos: con k ≥ 3 la silueta cae a 0,2. Los 48 barrios forman un continuo, no tipos claros.
 
 ## 5. Limitaciones y hallazgos
 
@@ -60,4 +92,15 @@ El calendario explica casi todo lo que el modelo logra explicar. Un fin de seman
 - Dentro de M2, `lluvia_mm` y `estado_clima` son casi redundantes: todos los días clasificados como lluvia tienen mm > 0 y todos los demás tienen 0.
 - Agregar a todo Montevideo impide decir algo sobre diferencias territoriales; eso lo responde el clustering.
 
-**Hallazgo.** El calendario (tipo de día y mes) explica cerca del 30 % de la variación diaria de siniestros; el clima no aporta señal detectable. El 70 % restante no se explica con las variables disponibles.
+**Clustering.**
+- k-means supone distancia euclídea y grupos aproximadamente esféricos. Las proporciones están ligadas entre sí (colisión, caída y despiste se reparten el mismo total): el primer eje del PCA (43 % de la varianza) es básicamente "colisión contra siniestros de un solo vehículo".
+- `p_grave_fatal` se apoya en pocos casos en los barrios chicos: el barrio con menos siniestros tiene 206 y el que menos graves o fatales tiene 20. A 206 siniestros, el error estándar de una proporción de 13 % es de 2,3 puntos, cerca del desvío entre barrios (3,6 puntos): esta variable es en buena parte ruido.
+- Los límites de barrio son administrativos y cortan avenidas por el medio: una misma avenida queda repartida entre varios barrios. Los barrios rurales, grandes, agregan tramos de rutas enteras, y los barrios chicos del centro, una trama urbana: las unidades no son comparables en superficie (mediana de 21 contra 2,5 km² entre grupos).
+- El descriptor de avenidas se calcula por el nombre de la calle (que empiece con Avenida, Boulevard o Rambla) y 835 siniestros no tienen calle; es una aproximación.
+- El perfil agrega 4,5 años: no distingue cambios en el tiempo, y no se corrige por exposición (tránsito, parque automotor).
+- Una silueta de 0,33 indica estructura débil; los grupos describen una tendencia, no tipos bien separados.
+
+**Hallazgos.**
+1. El calendario (tipo de día y mes) explica cerca del 30 % de la variación diaria de siniestros; el clima no aporta señal detectable. El 70 % restante no se explica con las variables disponibles.
+2. Entre los 62 barrios hay una sola separación con respaldo: un grupo de 14 barrios, mayoritariamente periurbanos y rurales y de baja densidad, con más despistes, caídas y casos graves, frente a una ciudad compacta de 48 barrios dominada por colisiones y atropellos. Es estable (idéntica en 30 semillas) pero débil (silueta 0,33), y dos de los 14 barrios no encajan bien.
+3. Dentro de la ciudad compacta no hay subgrupos distinguibles, y el volumen de siniestros no separa a los grupos.

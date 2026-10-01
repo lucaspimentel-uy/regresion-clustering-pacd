@@ -11,8 +11,8 @@ R 4.6.1; paquetes en la biblioteca de usuario (`R_LIBS_USER`). `00_setup.R` fall
 | 0.b Fechas | cerrado (usuario aprobó) | `01_fechas.R` |
 | 0.c Siniestros individuales + barrio | cerrado | `02_siniestros_barrio.R` → `data/processed/siniestros_barrio.rds` |
 | 1 Regresión | cerrado | `03_regresion.R` → `outputs/figuras/reg_*.png`, `outputs/tablas/reg_*.csv` |
-| 2 Clustering | pendiente | `04_clustering.R` |
-| Extensión día × franja | no empezar hasta cerrar 1 y 2 | — |
+| 2 Clustering | cerrado | `04_clustering.R` → `outputs/figuras/clu_*.png`, `outputs/tablas/clu_*.csv`, `data/processed/perfil_barrios_grupos.rds` |
+| Extensión día × franja | opcional; Pasos 1 y 2 ya cerrados y commiteados, **no empezada** (esperando OK del usuario) | — |
 
 ## Paso 0.b — hallazgo
 
@@ -49,3 +49,15 @@ La hipótesis del enunciado (formatos de fecha mezclados / separador tab) **no e
 - Serie diaria: caídas cada enero y deriva al alza (~20 → ~25 por día, 2021→2025) que el modelo no recoge. No se agregó tendencia (regla: no tocar el diseño para subir R²); queda como limitación.
 - `lluvia_mm` y `estado_clima` casi redundantes (todo día "lluvia" tiene mm > 0; todo otro día tiene 0).
 - Split aleatorio sobre serie diaria → error de test algo optimista.
+
+## Paso 2 — resultados
+
+- Perfil por barrio (62): 7 proporciones sobre TODOS los siniestros del barrio. Tipo con <3 % → OTROS (obstáculo 2,3 %, animales 1,1 %, `NA` 0,03 %; OTROS = 3,4 % del total). Quedan los 4 tipos pedidos (colisión, despiste, atropello peatón, caída). Sin faltantes; 9 valores con |z| > 2,5 en 9 barrios, ninguno parece error, nada excluido.
+- sd de las variables 0,020 (nocturno) a 0,069 (colisión) → z-score justificado. Correlaciones fuertes: colisión–caída −0,78, colisión–despiste −0,71.
+- **Barrido k = 2..10** (`nstart = 25`, `set.seed(2024)` antes de cada k): silueta 0,334 en k=2 y 0,20–0,225 de k=3 a 10; WSS 297 → 114 sin codo nítido. Con k=1 de referencia (WSS = 427) las caídas son 130 → 55 → 33 → 24: el único codo plausible está en 2.
+- **Elegido k = 2** (grupos 48 / 14). Codo y silueta no coinciden del todo (silueta clara en 2; codo no nítido y solo apunta a 2 si se incluye k=1). Estable: 30 semillas, Rand ajustado = 1. k=3 conserva 12/14 del grupo chico y parte el grande en 27/21 sin mejorar la silueta. Silueta media 0,36 (grupo 1) y 0,24 (grupo 2); 2 barrios con silueta negativa: CAPURRO BELLA VISTA y PUNTA CARRETAS (ambos del grupo 2).
+- Grupo 2 (14): BAÑADOS DE CARRASCO, CAPURRO BELLA VISTA, CASABO PAJAS BLANCAS, COLON CENTRO Y NOROESTE, COLON SURESTE ABAYUBA, CONCILIACION, LA PALOMA TOMKINSON, LEZICA MELILLA, MANGA, MANGA TOLEDO CHICO, PASO DE LA ARENA, PUNTA CARRETAS, TRES OMBUES PBLO VICTORIA, VILLA GARCIA MANGA RURAL. Más despiste (10,4 vs 3,6 %), caída (12,9 vs 7,5), grave/fatal (15,7 vs 12,5), finde (26,0 vs 22,6); menos colisión (63,1 vs 74,4) y atropello (8,2 vs 11,4); nocturno casi igual.
+- Cruces: densidad mediana 44 vs 237 sin./km² (KW p = 7,5e-6); total NO distingue (592 vs 521; p = 0,59); % avenida 28 vs 46 (p = 0,009); municipio: p Fisher simulado = 0,044 (grupo 2 sin barrios de B ni E). Mapa: grupo 2 = franja rural/periurbana N y O + 2 excepciones urbanas.
+- PCA: PC1 43,1 % (colisión vs despiste/caída/finde), PC2 20,3 % (atropello+nocturno vs grave).
+- `p_avenida` (calle empieza con AVENIDA/BOULEVARD/BULEVAR/RAMBLA) es un **descriptor adicional** no pedido en el enunciado, solo externo, para responder "avenidas vs calles internas". Es heurístico (835 siniestros sin calle).
+- Pendiente del lado de datos: ninguno. `informe/informe.md` ≈ 2.670 palabras (tablas incluidas): al borde de las 5 páginas; figuras solo referenciadas por ruta, no incrustadas.
