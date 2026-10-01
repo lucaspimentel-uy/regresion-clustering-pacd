@@ -11,13 +11,13 @@ Fuente principal: archivo unificado de siniestros de Uruguay (2018–2025, 224.6
 
 **Lectura del archivo.** El separador es coma seguida de espacio. Las fechas tienen un único formato (`m/d/yyyy`): 0 valores no parseables, y el día de la semana derivado coincide en el 100 % de los casos con la columna `Dia Semana`. El problema detectado fue otro: 107 registros traen comillas dobles dentro del nombre de la calle (por ejemplo `CAMINO VECINAL "RUTA JONES"`), y la lectura con el manejo de comillas por defecto descartaba grandes bloques del archivo (49.544 de 224.694 filas, con años enteros faltantes). Se lee con `quote = ""`.
 
-Filas de Montevideo por año, antes de filtrar por ventana:
+Registros de Montevideo por año en el archivo, antes de filtrar por ventana y de eliminar duplicados:
 
 | Año | 2018 | 2019 | 2020 | 2021 | 2022 | 2023 | 2024 | 2025 |
 |---|---|---|---|---|---|---|---|---|
-| Siniestros | 8.109 | 8.109 | 6.533 | 6.921 | 7.683 | 7.902 | 8.422 | 8.748 |
+| Registros | 8.109 | 8.109 | 6.533 | 6.921 | 7.683 | 7.902 | 8.422 | 8.748 |
 
-**Siniestros individuales.** Se filtró Departamento = MONTEVIDEO y 2021-07-01 / 2025-12-31 (36.713 registros). Se eliminaron 90 duplicados exactos (los 11 campos originales idénticos), lo que deja 36.623. Los faltantes escritos como texto (`SIN DATOS`, `NO SE INGRESO`) se recodificaron a `NA`; la hora está siempre en 0–23. Se derivó `nocturno` (22 a 5 h; 13,5 % de los casos) y `finde` (sábado y domingo; 23,3 %).
+**Siniestros individuales.** Se filtró Departamento = MONTEVIDEO y 2021-07-01 / 2025-12-31 (36.713 registros). Se eliminaron 90 duplicados exactos (los 11 campos originales idénticos), lo que deja 36.623; con la exclusión de los 11 puntos sin barrio (ver abajo) el total es exactamente 36.612, igual al de `siniestros_montevideo.csv`, una fuente independiente, y los dos conjuntos coinciden fila a fila en fecha y coordenadas. La eliminación queda así validada por una fuente externa; sin ella el total sería 36.713. Los faltantes escritos como texto (`SIN DATOS`, `NO SE INGRESO`) se recodificaron a `NA`; la hora está siempre en 0–23. Se derivó `nocturno` (22 a 5 h; 13,5 % de los casos) y `finde` (sábado y domingo; 23,3 %).
 
 **Asignación de barrio.** Las coordenadas del archivo están en UTM 21S. Se contrastaron contra la latitud/longitud conocida de `siniestros_montevideo.csv` (36.612 puntos): bajo EPSG:32721 (WGS84) y EPSG:31981 (SIRGAS 2000) el error mediano es 4 cm y el máximo 7 cm, es decir, el redondeo de la lat/lon; un control con UTM 20S da 547 km de error. Los dos candidatos son indistinguibles con esta prueba (misma proyección, datums casi coincidentes); se usó 32721. Luego se transformó a EPSG:4326 y se unió con los 62 polígonos de barrio (6 geometrías inválidas reparadas con `st_make_valid`).
 
@@ -29,7 +29,23 @@ Once puntos (Ruta 1 km 22, `Localidad = SIN DATOS`, coordenadas repetidas de rel
 
 **Unidad y respuesta.** El día, para todo Montevideo: 1.645 observaciones obtenidas sumando `n_siniestros` del panel por fecha (el clima y `tipo_dia` son idénticos entre municipios en cada fecha). La respuesta tiene media 22,26, desvío 6,44 y rango 4–44. Se agrega porque, por municipio × día, la media es 2,78 siniestros y la variación entre municipios en un día dado es casi toda ruido que las variables disponibles no explican: el mismo calendario y clima dan R² = 0,055 por municipio × día (0,134 si se incluye el municipio como factor) contra 0,297 por día agregado. Agregar pierde ruido, no información.
 
-**Exploración** (`../outputs/figuras/reg_01` a `reg_04`). Los fines de semana y feriados tienen menos siniestros que los días de semana, y enero es el mes más bajo. Los suavizados contra temperatura y lluvia son casi planos. La serie diaria muestra caídas cada enero y una deriva al alza (de unos 20 a unos 25 por día entre 2021 y 2025).
+**Exploración** (Figuras 1 a 4). Los fines de semana y feriados tienen menos siniestros que los días de semana, y enero es el mes más bajo. Los suavizados contra temperatura y lluvia son casi planos. La serie diaria muestra caídas cada enero y una deriva al alza (de unos 20 a unos 25 por día entre 2021 y 2025; ver limitaciones).
+
+![Boxplots del total diario por tipo de día y por mes](../outputs/figuras/reg_01_boxplots.png)
+
+*Figura 1. Siniestros por día según tipo de día y mes.*
+
+![Dispersión del total diario contra temperatura media y lluvia, con suavizado](../outputs/figuras/reg_02_scatter_clima.png)
+
+*Figura 2. Siniestros por día contra temperatura media y lluvia, con suavizado loess. No hay relación visible.*
+
+![Serie temporal del total diario con media móvil de 28 días](../outputs/figuras/reg_03_serie_temporal.png)
+
+*Figura 3. Serie diaria de siniestros (gris) y media móvil de 28 días (rojo).*
+
+![Histograma del total diario de siniestros](../outputs/figuras/reg_04_histograma.png)
+
+*Figura 4. Distribución de la respuesta: media 22,26, desvío 6,44.*
 
 **Modelos anidados.** M0: `tipo_dia`; M1: + `mes`; M2: + `temp_media`, `lluvia_mm`, `viento_max_kmh`, `estado_clima`. Split aleatorio 70/30 (1.152 días de entrenamiento, 493 de prueba; semilla 2024). Baseline: predecir la media de entrenamiento.
 
@@ -44,7 +60,15 @@ Ajustados sobre los 1.645 días, sin split, los R² son 0,223 / 0,294 / 0,297 y 
 
 El calendario explica casi todo lo que el modelo logra explicar. Un fin de semana tiene 5,8 siniestros menos que un día de semana y un feriado 8,2 menos (M1). Respecto de enero, los demás meses suman entre 3,6 (febrero) y 7,2 (diciembre). Agregar `mes` mejora el ajuste de forma clara (F = 11,8; p < 0,001). Agregar el clima aporta menos de un punto de R², empeora levemente el RMSE de prueba (5,42 frente a 5,39) y no resulta significativo al 5 % (F = 2,15; p = 0,057); el AIC de M2 es solo 0,8 menor, un empate. Se toma **M1** como mejor modelo: menor RMSE de prueba y más simple. Reduce el RMSE de prueba un 17 % respecto de predecir la media (6,47 a 5,39); el 70 % restante de la varianza queda sin explicar.
 
-**Residuos de M1** (`reg_05`). No hay patrón contra los valores ajustados y los residuos por mes y por tipo de día están centrados en cero. La cola derecha es más pesada que la normal (QQ-plot; Shapiro-Wilk p ≈ 4·10⁻⁶): los días con muchos siniestros se subestiman. En conteos se espera que la varianza crezca con la media, pero aquí no se detecta heterocedasticidad (Breusch-Pagan p = 0,11; desvío residual por tercil de ajustado 5,3 / 5,7 / 5,4), probablemente porque los valores ajustados ocupan un rango estrecho (10 a 26, casi todos entre 18 y 26). La varianza residual es 1,3 veces la media, una sobredispersión leve respecto de Poisson. La autocorrelación de lag 1 de los residuos es 0,11, en línea con la deriva al alza que el modelo no recoge. En observados vs. predichos (`reg_06`) las predicciones quedan en franjas verticales, porque el modelo solo tiene variables categóricas, y los días extremos (menos de 12 o más de 35) no se anticipan.
+**Residuos de M1** (Figura 5). No hay patrón contra los valores ajustados y los residuos por mes y por tipo de día están centrados en cero. La cola derecha es más pesada que la normal (QQ-plot; Shapiro-Wilk p ≈ 4·10⁻⁶): los días con muchos siniestros se subestiman. En conteos se espera que la varianza crezca con la media, pero aquí no se detecta heterocedasticidad (Breusch-Pagan p = 0,11; desvío residual por tercil de ajustado 5,3 / 5,7 / 5,4), probablemente porque los valores ajustados ocupan un rango estrecho (10 a 26, casi todos entre 18 y 26). La varianza residual es 1,3 veces la media, una sobredispersión leve respecto de Poisson. La autocorrelación de lag 1 de los residuos es 0,11, en línea con la deriva al alza que el modelo no recoge. En observados vs. predichos (Figura 6) las predicciones quedan en franjas verticales, porque el modelo solo tiene variables categóricas, y los días extremos (menos de 12 o más de 35) no se anticipan.
+
+![Diagnóstico de residuos de M1: contra ajustados, QQ-plot, por mes y por tipo de día](../outputs/figuras/reg_05_residuos.png)
+
+*Figura 5. Residuos de M1 (entrenamiento): contra valores ajustados, QQ-plot, por mes y por tipo de día.*
+
+![Observados contra predichos de M1 en entrenamiento y prueba, con recta identidad](../outputs/figuras/reg_06_obs_vs_pred.png)
+
+*Figura 6. Observados contra predichos de M1, con recta identidad, en entrenamiento y prueba.*
 
 ## 4. Clustering: perfiles de siniestralidad por barrio
 
@@ -52,11 +76,15 @@ El calendario explica casi todo lo que el modelo logra explicar. Un fin de seman
 
 **Variables.** Siete proporciones dentro del barrio (no conteos, para que el agrupamiento capture perfil y no volumen): colisión entre vehículos, despiste, atropello de peatón, caída, grave o fatal, nocturno y fin de semana. "OTROS" (obstáculo en calzada, atropello de animales y tipo sin dato; 3,4 % del total) queda afuera para evitar una suma exacta de 1 entre las proporciones de tipo. Solo para caracterizar, fuera del agrupamiento: total de siniestros, municipio dominante del barrio, densidad (siniestros por km²) y, como descriptor adicional, la proporción de siniestros cuya calle comienza con Avenida, Boulevard o Rambla.
 
-**Revisión previa** (`../outputs/figuras/clu_01_histogramas.png`). Sin faltantes. `p_despiste` tiene cola derecha; las demás son aproximadamente simétricas. Los extremos con |z| > 2,5 son nueve valores en nueve barrios distintos (despiste en Lezica Melilla, 16,9 %; atropello de peatón en Tres Cruces y Centro, 24 %; caída en Manga, 21 %) y ninguno parece un error, por lo que no se excluyó ni se modificó nada. Las proporciones están correlacionadas entre sí: colisión con caída −0,78 y con despiste −0,71.
+**Revisión previa** (Figura 7). Sin faltantes. `p_despiste` tiene cola derecha; las demás son aproximadamente simétricas. Los extremos con |z| > 2,5 son nueve valores en nueve barrios distintos (despiste en Lezica Melilla, 16,9 %; atropello de peatón en Tres Cruces y Centro, 24 %; caída en Manga, 21 %) y ninguno parece un error, por lo que no se excluyó ni se modificó nada. Las proporciones están correlacionadas entre sí: colisión con caída −0,78 y con despiste −0,71.
+
+![Histogramas de las siete variables del perfil de barrio](../outputs/figuras/clu_01_histogramas.png)
+
+*Figura 7. Distribución de las siete variables del perfil entre los 62 barrios.*
 
 **Estandarización.** Se usó z-score aunque todas sean proporciones: los desvíos entre barrios van de 0,020 (nocturno) a 0,069 (colisión), una razón de 3,4 (11 en varianza). Sin estandarizar, la distancia euclídea quedaría dominada por la colisión.
 
-**Elección de k.** k-means con `nstart = 25` y semilla fija, k = 2 a 10 (`clu_02_codo_silueta.png`).
+**Elección de k.** k-means con `nstart = 25` y semilla fija, k = 2 a 10 (Figura 8).
 
 | k | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
 |---|---|---|---|---|---|---|---|---|---|
@@ -64,6 +92,10 @@ El calendario explica casi todo lo que el modelo logra explicar. Un fin de seman
 | Silueta | **0,334** | 0,207 | 0,202 | 0,213 | 0,207 | 0,222 | 0,218 | 0,225 | 0,215 |
 
 La silueta tiene un máximo claro en k = 2 y de k = 3 en adelante queda plana en torno a 0,2, por debajo de 0,25 (sin estructura sustancial). El codo **no es nítido**: entre k = 2 y 10 la curva de WSS baja de forma suave. Si se toma como referencia k = 1 (WSS = 427, la variación total), la mayor caída es la de 1 a 2 (130, contra 55 de 2 a 3 y 33 de 3 a 4), de modo que el único codo plausible coincide con la silueta, pero la evidencia del codo por sí sola no alcanzaría para elegir. Se adopta **k = 2**. La partición es idéntica en 30 semillas distintas (Rand ajustado = 1). Con k = 3 el grupo menor se conserva (12 de sus 14 barrios quedan juntos) y el grupo grande se parte en 27 y 21 barrios sin que la silueta mejore.
+
+![Método del codo y silueta promedio según k](../outputs/figuras/clu_02_codo_silueta.png)
+
+*Figura 8. Método del codo (WSS, con k = 1 como referencia) y silueta promedio; el círculo rojo marca k = 2.*
 
 **Grupos.** Medias por grupo en escala original (proporción de los siniestros del barrio):
 
@@ -74,7 +106,23 @@ La silueta tiene un máximo claro en k = 2 y de k = 3 en adelante queda plana en
 
 Grupo 2: Bañados de Carrasco, Capurro Bella Vista, Casabó Pajas Blancas, Colón Centro y Noroeste, Colón Sureste Abayuba, Conciliación, La Paloma Tomkinson, Lezica Melilla, Manga, Manga Toledo Chico, Paso de la Arena, Punta Carretas, Tres Ombúes Pueblo Victoria y Villa García Manga Rural. El grupo 1 reúne los otros 48 (lista completa en `../outputs/tablas/clu_barrios_por_grupo.csv`).
 
-**Lectura cruzada** (`clu_05_mapa.png`). El mapa muestra que el grupo 2 ocupa casi toda la franja rural y periurbana del norte y el oeste; el grupo 1 es la ciudad compacta. La densidad lo confirma: mediana de 44 siniestros/km² en el grupo 2 (rango intercuartil 11–104) contra 237 en el grupo 1 (144–307) (Kruskal-Wallis p < 0,001); el área mediana es 21 contra 2,5 km². Las avenidas pesan más en el grupo 1 (46 % de los siniestros contra 28 %; p = 0,009). El **volumen total no distingue** a los grupos (mediana 592 contra 521; p = 0,59): no es una división de barrios "con muchos" y "con pocos" siniestros. Por municipio, el grupo 2 reúne 4 de los 8 barrios del A, 4 de 7 del G, 2 de 9 del D, 2 de 7 del F, 1 de 13 del C y 1 de 5 del CH, ninguno del B ni del E (Fisher simulado p = 0,044): se asocia con la periferia, pero no coincide con un municipio. La separación tampoco es limpia: varios barrios del grupo 1 (Nuevo París, Punta Rieles, Carrasco Norte, Peñarol, Las Canteras) tienen densidades de 70 a 84 siniestros/km², y dos barrios del grupo 2 (Capurro Bella Vista y Punta Carretas) son urbanos y tienen silueta negativa: no encajan bien en ninguno de los dos grupos. La silueta promedio es 0,36 en el grupo 1 y 0,24 en el grupo 2.
+**Visualizaciones.** El PCA a dos componentes retiene el 63 % de la varianza (PC1 43 %, PC2 20 %). PC1 opone la colisión a despiste, caída y fin de semana; PC2 opone atropello de peatón y nocturno a grave o fatal (Figura 9). Los boxplots (Figura 10) muestran una separación clara en despiste, colisión, caída y fin de semana, y menos clara en grave o fatal y nocturno.
+
+![PCA de los 62 barrios coloreado por grupo, con las cargas de cada variable](../outputs/figuras/clu_03_pca.png)
+
+*Figura 9. PCA de los barrios coloreado por grupo. Se rotulan los 10 más alejados del centro.*
+
+![Boxplots de cada variable del perfil por grupo](../outputs/figuras/clu_04_boxplots.png)
+
+*Figura 10. Cada variable del perfil por grupo, en escala original.*
+
+**Lectura cruzada** (Figura 11). El mapa muestra que el grupo 2 ocupa casi toda la franja rural y periurbana del norte y el oeste; el grupo 1 es la ciudad compacta. La densidad lo confirma: mediana de 44 siniestros/km² en el grupo 2 (rango intercuartil 11–104) contra 237 en el grupo 1 (144–307) (Kruskal-Wallis p < 0,001); el área mediana es 21 contra 2,5 km². Las avenidas pesan más en el grupo 1 (46 % de los siniestros contra 28 %; p = 0,009). El **volumen total no distingue** a los grupos (mediana 592 contra 521; p = 0,59): no es una división de barrios "con muchos" y "con pocos" siniestros. Por municipio, el grupo 2 reúne 4 de los 8 barrios del A, 4 de 7 del G, 2 de 9 del D, 2 de 7 del F, 1 de 13 del C y 1 de 5 del CH, ninguno del B ni del E (Fisher simulado p = 0,044): se asocia con la periferia, pero no coincide con un municipio. La separación tampoco es limpia: varios barrios del grupo 1 (Nuevo París, Punta Rieles, Carrasco Norte, Peñarol, Las Canteras) tienen densidades de 70 a 84 siniestros/km², y dos barrios del grupo 2 (Capurro Bella Vista y Punta Carretas) son urbanos y tienen silueta negativa: no encajan bien en ninguno de los dos grupos. La silueta promedio es 0,36 en el grupo 1 y 0,24 en el grupo 2.
+
+![Mapa de los 62 barrios de Montevideo coloreados por grupo](../outputs/figuras/clu_05_mapa.png)
+
+*Figura 11. Mapa de los 62 barrios coloreados por grupo.*
+
+**Punta Carretas.** Es el caso más visible de mal ajuste, y la rambla lo explica solo en parte. El 30 % de sus siniestros (133 de 447) ocurre sobre la rambla (Presidente Wilson y Mahatma Gandhi), la mayor proporción entre los barrios con más siniestros de rambla. En toda Montevideo la rambla tiene un perfil propio, más de un solo vehículo: 11,4 % de despistes contra 4,9 % fuera de ella, 15,2 % de caídas contra 8,6 % y 62 % de colisiones contra 72 %. Dentro de Punta Carretas el despiste sube de 5,7 % fuera de la rambla a 9,8 % sobre ella, de modo que la rambla explica su despiste algo elevado (6,9 %, puesto 16 de 62); la caída, en cambio, no: es 10,5 % tanto sobre la rambla como fuera de ella. Pero ninguno de los dos valores es lo que lo deja en el grupo 2: ambos están dentro del rango del grupo 1 (despiste de 1,8 % a 8,4 %; caída de 3,0 % a 11,5 %). Lo que lo distingue es un perfil nocturno y peatonal: es el segundo barrio con más siniestros nocturnos (19,0 %), el cuarto en atropellos de peatón (17,9 %) y el sexto más bajo en colisiones (62,2 %) y en casos graves o fatales (8,9 %); sobre la rambla, además, el 27 % de los siniestros es nocturno y el 40 % ocurre en fin de semana. Queda casi a igual distancia de los dos centros de grupo (4,05 del grupo 2 y 4,29 del grupo 1, distancia euclídea en variables estandarizadas): es un barrio atípico que k = 2 reparte por poco margen. Como diagnóstico, y sin modificar el agrupamiento, si su perfil se calculara sin los siniestros de rambla quedaría más cerca del grupo 1 (3,59 contra 4,42). Capurro Bella Vista, el otro barrio con silueta negativa, también tiene mucha rambla (19 % de sus siniestros). Las cifras sobre la rambla se apoyan en pocos casos (en Punta Carretas, 13 despistes y 14 caídas).
 
 **Interpretación en lenguaje llano.**
 - **Grupo 1, ciudad compacta (48 barrios).** Tres de cada cuatro siniestros son choques entre vehículos y uno de cada nueve es un atropello a un peatón; los despistes son raros (3,6 %). Es el perfil de la trama urbana densa, con mucha interacción entre vehículos y peatones.
@@ -86,7 +134,7 @@ Grupo 2: Bañados de Carrasco, Capurro Bella Vista, Casabó Pajas Blancas, Coló
 
 **Regresión.**
 - Se asume normalidad sobre una respuesta de conteo; una Poisson o binomial negativa (la sobredispersión de 1,3 apunta a esta última) sería lo adecuado. Las predicciones no son enteras.
-- No hay variables de exposición (tránsito, obras, eventos, parque automotor); la deriva al alza de la serie no tiene variable que la explique.
+- No hay variables de exposición (tránsito, obras, eventos, parque automotor), y la serie tiene una deriva al alza que el modelo no recoge. La ventana arranca en 2021-07, en plena normalización pospandemia, y la tabla de registros por año lo respalda: 6.533 en 2020 contra 8.109 en 2019, con recuperación hasta 8.748 en 2025. La suba de unos 20 a unos 25 siniestros por día es, por lo tanto, probablemente en buena parte recuperación de la circulación y no un aumento del riesgo; sin datos de tránsito no se puede separar. Tampoco es solo recuperación: en 2024 y 2025 el nivel (23,0 y 24,0 siniestros por día) supera al de 2018–2019 (22,2).
 - Los datos son siniestros registrados: puede haber subregistro, y no necesariamente constante en el tiempo.
 - El split es aleatorio sobre una serie diaria con autocorrelación residual leve: los días de prueba están intercalados con los de entrenamiento y el error de prueba es algo optimista.
 - Dentro de M2, `lluvia_mm` y `estado_clima` son casi redundantes: todos los días clasificados como lluvia tienen mm > 0 y todos los demás tienen 0.

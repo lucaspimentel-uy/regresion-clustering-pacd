@@ -12,7 +12,9 @@ R 4.6.1; paquetes en la biblioteca de usuario (`R_LIBS_USER`). `00_setup.R` fall
 | 0.c Siniestros individuales + barrio | cerrado | `02_siniestros_barrio.R` → `data/processed/siniestros_barrio.rds` |
 | 1 Regresión | cerrado | `03_regresion.R` → `outputs/figuras/reg_*.png`, `outputs/tablas/reg_*.csv` |
 | 2 Clustering | cerrado | `04_clustering.R` → `outputs/figuras/clu_*.png`, `outputs/tablas/clu_*.csv`, `data/processed/perfil_barrios_grupos.rds` |
-| Extensión día × franja | opcional; Pasos 1 y 2 ya cerrados y commiteados, **no empezada** (esperando OK del usuario) | — |
+| Extensión día × franja | **descartada por el usuario** (no hacer: agrega una tercera unidad de análisis sin ser exigida) | — |
+| Informe | cerrado: figuras incrustadas + PDF | `informe/informe.md`, `informe/informe.pdf` (`05_informe_pdf.R`) |
+| Chequeos del informe | cifras reproducibles | `06_chequeos_informe.R` |
 
 ## Paso 0.b — hallazgo
 
@@ -61,3 +63,18 @@ La hipótesis del enunciado (formatos de fecha mezclados / separador tab) **no e
 - PCA: PC1 43,1 % (colisión vs despiste/caída/finde), PC2 20,3 % (atropello+nocturno vs grave).
 - `p_avenida` (calle empieza con AVENIDA/BOULEVARD/BULEVAR/RAMBLA) es un **descriptor adicional** no pedido en el enunciado, solo externo, para responder "avenidas vs calles internas". Es heurístico (835 siniestros sin calle).
 - Pendiente del lado de datos: ninguno. `informe/informe.md` ≈ 2.670 palabras (tablas incluidas): al borde de las 5 páginas; figuras solo referenciadas por ruta, no incrustadas.
+
+## Ajustes posteriores a la revisión del usuario
+
+Decisiones confirmadas por el usuario (no reabrir):
+- `p_avenida` se queda (descriptor externo, heurístico, 835 siniestros sin calle declarados).
+- El informe **no se recorta**: el límite de 5 páginas era interno, no de la consigna (hoy ≈ 3.500 palabras con figuras y epígrafes).
+- Extensión día × franja: **no se hace**.
+- R² = 0,055 por municipio × día es el valor correcto; el 0,13 del enunciado era un error de redacción (correspondía al modelo con `zona_id`). No revisar de nuevo.
+
+Cambios hechos:
+- **Figuras incrustadas** en `informe/informe.md` con `![...](../outputs/figuras/x.png)` + epígrafe (Figuras 1 a 11). Las 11 rutas resuelven desde `informe/`. Como un `.md` subido solo no muestra imágenes, se genera además `informe/informe.pdf` (11 imágenes embebidas, 10 páginas) con `Rscript 05_informe_pdf.R` (requiere `commonmark` y Edge o Chrome; no hay pandoc ni LaTeX). Regenerar el PDF cada vez que cambie el `.md`.
+- **Duplicados**: el informe justifica la eliminación de los 90 con la coincidencia exacta con `siniestros_montevideo.csv` (36.612; mismos pares fecha-coordenadas fila a fila, verificado en `06_chequeos_informe.R`). Sin eliminarlos serían 36.713.
+- **Deriva al alza**: en limitaciones, ventana desde 2021-07 en normalización pospandemia (6.533 en 2020 vs 8.109 en 2019, hasta 8.748 en 2025). Matiz agregado a partir de los datos: 2024 y 2025 (23,0 y 24,0 por día) superan a 2018–2019 (22,2), así que no es solo recuperación. Los conteos de la tabla son registros del archivo (con duplicados; sin ellos bajan entre 6 y 28 por año, sin cambiar la comparación).
+- **Punta Carretas** (párrafo en la sección 4, sin tocar el clustering): la rambla explica el despiste algo alto (9,8 % sobre la rambla vs 5,7 % fuera) pero **no** la caída (10,5 % en ambos), y ninguno de los dos valores lo lleva al grupo 2 (ambos dentro del rango del grupo 1). Lo distingue un perfil nocturno y peatonal (2.º en nocturno, 4.º en atropellos, 6.º más bajo en colisiones y en grave/fatal). Casi equidistante de los dos centros (4,05 al G2, 4,29 al G1); sin los siniestros de rambla quedaría más cerca del G1 (3,59 vs 4,42). Capurro Bella Vista (el otro de silueta negativa) también tiene mucha rambla (19 %). Conclusión: **no encaja**, atípico que k = 2 reparte por poco margen; la rambla contribuye pero no es toda la explicación.
+- Se agregó al informe una frase sobre PCA (Figura 9) y boxplots (Figura 10), que el texto no mencionaba.
