@@ -15,6 +15,7 @@ R 4.6.1; paquetes en la biblioteca de usuario (`R_LIBS_USER`). `00_setup.R` fall
 | Extensión día × franja | **descartada por el usuario** (no hacer: agrega una tercera unidad de análisis sin ser exigida) | — |
 | Informe | cerrado: figuras incrustadas + PDF | `informe/informe.md`, `informe/informe.pdf` (`05_informe_pdf.R`) |
 | Chequeos del informe | cifras reproducibles | `06_chequeos_informe.R` |
+| 3 Automatización (por municipio) | hecho, sin commit | `07_automatizacion.R` → `outputs/figuras/auto_*.png`, `outputs/tablas/auto_*.csv` |
 
 ## Paso 0.b — hallazgo
 
@@ -78,3 +79,19 @@ Cambios hechos:
 - **Deriva al alza**: en limitaciones, ventana desde 2021-07 en normalización pospandemia (6.533 en 2020 vs 8.109 en 2019, hasta 8.748 en 2025). Matiz agregado a partir de los datos: 2024 y 2025 (23,0 y 24,0 por día) superan a 2018–2019 (22,2), así que no es solo recuperación. Los conteos de la tabla son registros del archivo (con duplicados; sin ellos bajan entre 6 y 28 por año, sin cambiar la comparación).
 - **Punta Carretas** (párrafo en la sección 4, sin tocar el clustering): la rambla explica el despiste algo alto (9,8 % sobre la rambla vs 5,7 % fuera) pero **no** la caída (10,5 % en ambos), y ninguno de los dos valores lo lleva al grupo 2 (ambos dentro del rango del grupo 1). Lo distingue un perfil nocturno y peatonal (2.º en nocturno, 4.º en atropellos, 6.º más bajo en colisiones y en grave/fatal). Casi equidistante de los dos centros (4,05 al G2, 4,29 al G1); sin los siniestros de rambla quedaría más cerca del G1 (3,59 vs 4,42). Capurro Bella Vista (el otro de silueta negativa) también tiene mucha rambla (19 %). Conclusión: **no encaja**, atípico que k = 2 reparte por poco margen; la rambla contribuye pero no es toda la explicación.
 - Se agregó al informe una frase sobre PCA (Figura 9) y boxplots (Figura 10), que el texto no mencionaba.
+
+## Paso 3 — automatización (`07_automatizacion.R`)
+
+Repite el procedimiento de 03 (M0/M1/M2, split 70/30, semilla 2024, mismas fórmulas, niveles y referencias) para cada uno de los 8 municipios, con respuesta `n_siniestros`. Solo usa el panel. `Rscript 07_automatizacion.R` desde la raíz. Nada de 00–06 se tocó.
+
+- **Estructura**: caso manual de MUNICIPIO A (M1, sin funciones → `manual_A`); funciones `preparar_municipio`, `validar_municipio`, `dividir_fechas` (auxiliar), `ajustar_modelo` (tibble de 1 fila + `lm` en la list-column `ajuste`), `graficar_municipio`, `correr_flujo`. purrr: `map`, `map_dbl`, `map_dfr`, `pmap` sobre `expand_grid(municipio, modelo)`, `walk`/`walk2`, `safely` alrededor del ajuste.
+- **Split común**: se elige por fecha (`dividir_fechas`), así los 8 municipios usan los mismos días de train; es el mismo split de 03 (1.152 train / 493 test). Se chequea con `stopifnot(n_distinct(fechas_train) == 1)`.
+- **Validación**: los 8 pasan (`ok = TRUE`, `outputs/tablas/auto_validacion.csv`). Prueba en memoria con un MUNICIPIO X (copia de A con 3 NA, sin feriados, 145 días menos): `ok = FALSE`, "1500 filas (esperado 1645) | 3 NA | 145 fechas faltantes | niveles con menos de 5 dias: tipo_dia:feriado(0)"; se descarta con mensaje y los otros 8 dan resultados idénticos. Sin validar, `safely()` captura "Niveles sin ningun dia en train: tipo_dia=feriado". No se escribe a disco.
+- **Chequeos (`stopifnot`, todos pasan)**: M1 de A (función) = `manual_A`; suma de los 8 = 36.612 y coincide día por día con el total del panel; tabla final de 8 × 3 = 24 filas sin NA ni combinaciones repetidas; R² ∈ [0, 1], RMSE > 0, n_train + n_test = 1.645; X marcado y fuera de los resultados.
+- **Resultados** (`outputs/tablas/auto_metricas_municipio_modelo.csv`, figura `auto_comparacion.png`, 8 PNG `auto_municipio_x.png`):
+  - Media diaria por municipio: 2,05 (CH) a 3,52 (C); media de las 8 = 2,78.
+  - R² (train) M1 entre 0,036 (F) y 0,131 (C), media 0,070; M2 entre 0,036 y 0,133, media 0,075. Bajo, como se esperaba (conteos de 2 a 3,5 por municipio-día; coherente con el 0,055 de M2 sobre las 13.160 filas). No es un bug.
+  - Ganador por RMSE test: M1 en 5 (C, CH, E, F, G), M0 en 3 (A, B, D), M2 en ninguno.
+  - Mejora de M1 sobre el baseline: +7,4 % (C) a −0,9 % (A), media 3,0 %. Ranking: C, CH, E, D, F, B, G, A. A es el único donde M1 es peor que predecir la media.
+  - Clima (M2 vs M1): no baja el RMSE test en ningún municipio (−0,04 % a −0,80 %); el test F en train solo es significativo en A (p = 0,003) y no se traslada a test. Misma conclusión que 03.
+- **Entorno**: R 4.6.1 no está instalado en esta máquina (ni Windows ni WSL). La corrida se hizo con R 4.5.3 portátil (micromamba) en el scratchpad, donde `sf` no carga; se usó un envoltorio fuera del repo que quita `sf` de `00_setup.R` solo en memoria (07 no usa `sf`). Conviene correr `Rscript 07_automatizacion.R` una vez en el R habitual del grupo para confirmar. Requiere `purrr` (chequeo de instalación con mensaje claro).
