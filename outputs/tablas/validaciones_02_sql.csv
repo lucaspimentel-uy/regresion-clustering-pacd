@@ -1,0 +1,8 @@
+etapa,validacion,resultado,detalle
+02_sql,Tablas cargadas completas en SQLite,OK,siniestros: 36.612; barrios: 62; clima_diario: 1.645
+02_sql,Consultas con nombre en chequeos.sql,OK,
+02_sql,SQL: siniestros_sin_barrio,OK,0 filas problemáticas
+02_sql,SQL: siniestros_sin_dia,OK,0 filas problemáticas
+02_sql,SQL: ids_repetidos,OK,0 filas problemáticas
+02_sql,Consultas con nombre en consultas.sql,OK,
+02_sql,"Perfil por barrio: 62 barrios, suma de siniestros igual al total, sin NA",OK,62 barrios; 36.612 siniestros

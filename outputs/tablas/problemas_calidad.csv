@@ -1,0 +1,9 @@
+problema,n
+Calles con comillas dobles (rompen la lectura por defecto),107
+Filas leidas con el manejo de comillas por defecto,49544
+"Filas leidas con quote = """"",224694
+Duplicados exactos en la ventana,90
+Siniestros fuera de los 62 barrios,11
+Siniestros sin calle,835
+Siniestros sin tipo,10
+Siniestros sin hora valida,0

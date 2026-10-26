@@ -1,0 +1,6 @@
+tipo,siniestros,pct_del_total,pct_grave_fatal,pct_fatal
+COLISIÓN ENTRE VEHÍCULOS,26225,71.6,12.6,0.9
+ATROPELLO DE PEATÓN,4073,11.1,20.5,2.92
+CAÍDA,3215,8.8,9.3,0.59
+DESPISTE,1843,5,12.8,3.04
+OTROS,1256,3.4,9.6,0.88

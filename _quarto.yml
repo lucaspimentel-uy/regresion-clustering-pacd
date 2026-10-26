@@ -1,0 +1,6 @@
+# Proyecto Quarto: la raiz del repositorio es la raiz del proyecto, asi el informe
+# (report/informe.qmd) puede incluir las figuras de outputs/figuras.
+project:
+  type: default
+  render:
+    - report/informe.qmd
