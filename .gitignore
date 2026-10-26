@@ -2,8 +2,16 @@
 .RData
 .Rproj.user/
 
-# Fuente pesada (26 MB): se conserva fuera del repo
+# CSV extraido del zip (el pipeline lee directamente el zip)
 data/raw/uru_siniestros_unificado.csv
 
-# Derivados: se regeneran con los scripts
-data/processed/
+# Base SQLite: binaria y se regenera con scripts/02_base_relacional.R
+data/processed/*.sqlite
+
+# Generados en cada corrida
+outputs/session_info.txt
+
+# Quarto
+/.quarto/
+**/*.quarto_ipynb
+report/informe_files/

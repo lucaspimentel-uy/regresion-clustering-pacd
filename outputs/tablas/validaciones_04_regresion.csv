@@ -1,0 +1,5 @@
+etapa,validacion,resultado,detalle
+04_regresion,Total diario: una fila por fecha,OK,1.645 días
+04_regresion,Todos los niveles de los factores presentes en train,OK,1152 días de train / 493 de test
+04_regresion,Panel de cada municipio completo y sin NA,OK,8 de 8 municipios OK
+04_regresion,Métricas completas para todos los municipios y modelos,OK,24 combinaciones municipio x modelo

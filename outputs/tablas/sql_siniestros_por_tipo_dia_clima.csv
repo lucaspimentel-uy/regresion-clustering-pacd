@@ -1,0 +1,10 @@
+tipo_dia,estado_clima,dias,media_por_dia
+entre_semana,despejado,115,23.72
+entre_semana,lluvia,484,24.1
+entre_semana,nublado,515,24.67
+feriado,despejado,8,13.63
+feriado,lluvia,41,15.78
+feriado,nublado,28,16
+fin_semana,despejado,44,17.32
+fin_semana,lluvia,208,17.84
+fin_semana,nublado,202,19

@@ -1,0 +1,16 @@
+etapa,validacion,resultado,detalle
+01_preparacion,Archivos originales presentes,OK,"uru_siniestros_unificado.zip, barrios_montevideo.geojson, panel_diario_montevideo.csv, siniestros_montevideo.csv"
+01_preparacion,Lectura completa del unificado,OK,224.694 filas leídas = 224.694 líneas de datos
+01_preparacion,Columnas necesarias en el unificado,OK,11 columnas presentes
+01_preparacion,Fechas válidas (m/d/yyyy),OK,0 fechas sin parsear
+01_preparacion,Día de la semana coincide con la fecha,OK,"100,0 % de coincidencia"
+01_preparacion,Coordenadas completas,OK,0 siniestros sin coordenadas
+01_preparacion,EPSG 32721 reproduce la lat/lon de referencia,OK,"error max 7,1 cm; control UTM 20S: 547 km"
+01_preparacion,Municipio único por coordenada en la referencia,OK,
+01_preparacion,Todos los siniestros con municipio,OK,0 sin municipio
+01_preparacion,"Base limpia = referencia (fecha y coordenadas, fila a fila)",OK,36.713 en la ventana - 90 duplicados - 11 sin barrio = 36.612
+01_preparacion,Barrios: identificador único y todos los siniestros con barrio conocido,OK,62 barrios; 62 con siniestros
+01_preparacion,Columnas necesarias en el panel diario,OK,10 columnas presentes
+01_preparacion,Clima idéntico entre municipios en cada fecha,OK,
+01_preparacion,Clima: un registro por cada día de la ventana,OK,1.645 días
+01_preparacion,Panel generado = panel original (conteo municipio x día),OK,13.160 filas; 0 diferencias

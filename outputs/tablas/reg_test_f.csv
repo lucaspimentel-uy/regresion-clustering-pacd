@@ -1,0 +1,4 @@
+modelo,term,df.residual,rss,df,sumsq,statistic,p.value
+M0,n_siniestros ~ tipo_dia,1149,37844.064928999906,NA,NA,NA,NA
+M1,n_siniestros ~ tipo_dia + mes,1138,33986.41202351975,11,3857.6529054801576,11.802024178736355,3.762968810993249e-21
+M2,n_siniestros ~ tipo_dia + mes + temp_media + lluvia_mm + viento_max_kmh + estado_clima,1133,33666.95773936292,5,319.45428415682545,2.1501301469036878,0.05735232748518682

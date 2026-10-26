@@ -1,0 +1,304 @@
+---
+title: "Siniestralidad vial en Montevideo"
+subtitle: "Un pipeline reproducible: cuándo y dónde ocurren los siniestros (jul 2021 – dic 2025)"
+author: "Grupo — Programación Avanzada para Ciencia de Datos"
+lang: es
+date: today
+date-format: "D [de] MMMM [de] YYYY"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    number-sections: true
+    embed-resources: true
+    fig-align: center
+    tbl-cap-location: top
+  typst:
+    toc: true
+    number-sections: true
+    papersize: a4
+    margin:
+      x: 2cm
+      y: 2cm
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+# El informe NO recalcula el analisis: lee las tablas y figuras que generan los
+# scripts (scripts/01 a 05). Todos los numeros del texto salen de esas tablas.
+source(here::here("scripts", "00_setup.R"))
+library(knitr)
+
+# Todas las tablas de outputs/tablas en una lista nombrada (automatizado con map)
+archivos <- list.files(dir_tab, pattern = "\\.csv$", full.names = TRUE)
+tab <- map(archivos, ~ read_csv(.x, show_col_types = FALSE)) |>
+  set_names(sub("\\.csv$", "", basename(archivos)))
+
+figura <- function(nombre) include_graphics(file.path("..", "outputs", "figuras", paste0(nombre, ".png")))
+mun <- function(x) sub("MUNICIPIO ", "", x)
+
+flujo   <- tab$flujo_registros
+valid   <- bind_rows(tab[grep("^validaciones_", names(tab))])
+anual   <- tab$tmp_resumen_anual
+tend    <- tab$tmp_tendencia_municipios
+comp    <- tab$reg_comparacion_modelos
+testf   <- tab$reg_test_f
+coefs   <- tab$reg_coeficientes
+diag_m  <- tab$reg_diagnostico
+met_mun <- tab$reg_metricas_municipio
+barrido <- tab$clu_barrido_k
+medias  <- tab$clu_medias_por_grupo
+extern  <- tab$clu_externas_por_grupo
+pruebas <- set_names(tab$clu_pruebas_externas$p_valor, tab$clu_pruebas_externas$variable)
+estab   <- tab$clu_estabilidad
+grav    <- tab$sql_gravedad_por_tipo
+calidad <- set_names(tab$problemas_calidad$n, c("comillas", "lectura_defecto", "lectura_ok",
+                                                 "duplicados", "sin_barrio", "sin_calle",
+                                                 "sin_tipo", "sin_hora"))
+perfil_b <- read_csv(f_perfil, show_col_types = FALSE)
+sd_vars <- map_dbl(perfil_b[c("p_colision", "p_despiste", "p_atropello", "p_caida",
+                              "p_grave_fatal", "p_nocturno", "p_finde")], sd)
+sil_neg <- tab$clu_barrios_por_grupo |> filter(silueta < 0)
+
+n_final <- flujo$registros[flujo$paso == "Siniestros en la base procesada"]
+g <- function(modelo, col) comp[[col]][comp$modelo == modelo]
+coef_m <- function(termino) coefs$estimate[coefs$term == termino]
+t_mvd  <- filter(tend, municipio == "MONTEVIDEO")
+t_mun  <- filter(tend, municipio != "MONTEVIDEO") |> arrange(desc(pct_anual))
+k <- estab$k
+ganador_mun <- met_mun |> group_by(municipio) |> slice_min(RMSE_test, n = 1) |> ungroup()
+m1_mun <- filter(met_mun, modelo == "M1") |> arrange(desc(mejora_pct))
+```
+
+# Problema y preguntas
+
+Los siniestros de tránsito son uno de los principales problemas de salud pública urbana. Este proyecto toma la base de siniestros registrados en Uruguay, se queda con Montevideo y construye un flujo reproducible que va desde el archivo original hasta este informe. Responde dos preguntas complementarias:
+
+1. **Cuándo.** ¿Cómo evoluciona la cantidad de siniestros en el tiempo y qué explica cuántos ocurren por día: el calendario (tipo de día, mes) o el clima? ¿El patrón es el mismo en los 8 municipios?
+2. **Dónde y de qué tipo.** ¿Existen perfiles de siniestralidad diferenciados entre los 62 barrios (tipo de siniestro, gravedad, horario)?
+
+La primera se aborda con análisis temporal y regresión lineal; la segunda, con clustering (k-means). Son técnicas distintas porque las preguntas son distintas: la regresión explica una cantidad a partir de variables; el clustering busca grupos sin una variable respuesta.
+
+# Datos
+
+- `uru_siniestros_unificado.zip`: siniestros de todo el país 2018–2025 con fecha, hora, calle, tipo, gravedad y coordenadas UTM (`r fmt(flujo$registros[1])` filas). Es la base principal.
+- `barrios_montevideo.geojson`: polígonos de los 62 barrios (asignación de barrio, área y mapa).
+- `panel_diario_montevideo.csv`: municipio × día con tipo de día (incluye feriados) y clima. Aporta el calendario y el clima, y sirve de control del conteo diario.
+- `siniestros_montevideo.csv`: siniestros de Montevideo con lat/lon y municipio. Aporta el municipio por coordenada y sirve de validación.
+
+Todos están en `data/raw/`. Ventana de análisis: `r format(fecha_ini, "%d/%m/%Y")` a `r format(fecha_fin, "%d/%m/%Y")` (`r fmt(sum(anual$dias))` días), la misma del panel diario. Los datos originales no se modifican: el zip se lee directamente y todo lo derivado se escribe en `data/processed/`.
+
+# Pipeline
+
+```
+data/raw/ ─► 01_preparar_datos ─► data/processed/
+                                         │
+        ┌────────────────────────────────┼─────────────────────┐
+        ▼                                ▼                     ▼
+02_base_relacional (SQLite + sql/)   03_analisis_temporal   04_regresion
+        │
+        ▼  perfil por barrio
+05_clustering
+
+tablas y figuras (outputs/) ─► report/informe.qmd ─► informe.html / .pdf
+```
+
+`run_all.R` borra todo lo generado y ejecuta los cinco scripts y este informe en orden. Las funciones propias están en `R/` (lectura y limpieza en `datos.R`, análisis en `analisis.R`, validaciones y guardado en `utilidades.R`); las consultas SQL, en `sql/`.
+
+# Preparación y calidad de los datos
+
+## Decisiones principales
+
+```{r}
+#| label: tbl-flujo
+#| tbl-cap: "Del archivo original a la base procesada."
+flujo |> mutate(registros = fmt(registros)) |>
+  kable(col.names = c("Paso", "Registros"), align = c("l", "r"))
+```
+
+- **Lectura.** El separador es coma seguida de espacio. El problema principal no estaba en las fechas, sino en la lectura: `r calidad[["comillas"]]` registros traen comillas dobles dentro del nombre de la calle (por ejemplo `CAMINO VECINAL "RUTA JONES"`). Con el manejo de comillas por defecto, `read.csv()` abría una comilla y descartaba bloques enteros del archivo (se leían `r fmt(calidad[["lectura_defecto"]])` de `r fmt(calidad[["lectura_ok"]])` filas). Se lee con `quote = ""`, y una validación compara las filas leídas con las líneas del archivo.
+- **Fechas.** Formato único `m/d/yyyy`; ninguna queda sin convertir, y el día de la semana calculado coincide en el 100 % de los casos con la columna `Dia Semana`, que funciona como control independiente.
+- **Duplicados.** `r -flujo$registros[3]` filas repiten los 11 campos originales y se conservan una sola vez.
+- **Barrio y municipio.** Las coordenadas están en UTM 21S (EPSG 32721): transformadas a lat/lon reproducen las de `siniestros_montevideo.csv` con error de centímetros, y un control con UTM 20S da cientos de kilómetros. Con una unión espacial se asigna el barrio; `r -flujo$registros[4]` puntos (Ruta 1, km 22, coordenadas de relleno) caen fuera de los 62 polígonos y se excluyen. El municipio se toma de la referencia por coordenada, tras validar que cada coordenada tiene un único municipio.
+- **Categorías.** Los textos `SIN DATOS` y `NO SE INGRESO` pasan a `NA`. Una categoría aparecía una vez sin tilde y se unificó. Los tipos de siniestro con menos del 3 % del total (obstáculo en calzada, atropello de animales, sin dato) se agrupan en "OTROS".
+- **Indicadores derivados.** `nocturno` (22 a 5 h), `finde` (sábado o domingo) y el conteo por municipio y día (con 0 en los días sin siniestros).
+
+## Validaciones
+
+El pipeline se detiene con un mensaje claro si alguna falla. Las `r nrow(valid)` validaciones de la última corrida pasaron; las más importantes:
+
+```{r}
+#| label: tbl-validaciones
+#| tbl-cap: "Validaciones de estructura y calidad (selección)."
+valid |>
+  filter(grepl(paste("^Lectura completa", "^Día de la semana", "^EPSG", "^Base limpia",
+                     "^Panel generado", "siniestros_sin_barrio", "^Meses completos",
+                     "^Panel de cada municipio", sep = "|"), validacion)) |>
+  select(validacion, detalle) |>
+  kable(col.names = c("Validación", "Detalle"))
+```
+
+La validación más fuerte es la cuarta: la base limpia tiene exactamente los mismos pares fecha + coordenadas que `siniestros_montevideo.csv`, una fuente construida por separado. Eso confirma, entre otras cosas, que eliminar los duplicados era correcto. La quinta confirma que el panel municipio × día generado desde los siniestros individuales coincide en sus `r fmt(8 * sum(anual$dias))` filas con el panel original. El detalle completo está en `outputs/tablas/validaciones_*.csv`.
+
+## Base relacional
+
+Los siniestros, los barrios y los días se guardan en una base SQLite con tres tablas vinculadas por `barrio_id` y `fecha`. Las consultas de `sql/chequeos.sql` verifican la integridad referencial (ningún siniestro sin barrio o sin día, ningún identificador repetido), y las de `sql/consultas.sql` construyen el perfil de cada barrio que usa el clustering y tablas de resumen. Por ejemplo, la gravedad según el tipo:
+
+```{r}
+#| label: tbl-gravedad
+#| tbl-cap: "Gravedad según tipo de siniestro (consulta `gravedad_por_tipo`)."
+grav |> mutate(siniestros = fmt(siniestros), across(starts_with("pct"), ~ fmt(.x, 1))) |>
+  kable(col.names = c("Tipo", "Siniestros", "% del total", "% grave o fatal", "% fatal"),
+        align = c("l", "r", "r", "r", "r"))
+```
+
+El atropello de peatón es el tipo con mayor proporción de casos graves o fatales (`r fmt(grav$pct_grave_fatal[grav$tipo == "ATROPELLO DE PEATÓN"], 1)` %), y el despiste tiene la mayor letalidad (`r fmt(grav$pct_fatal[grav$tipo == "DESPISTE"], 1)` % de fatales, contra `r fmt(grav$pct_fatal[grav$tipo == "COLISIÓN ENTRE VEHÍCULOS"], 1)` % en las colisiones).
+
+# Análisis temporal
+
+En promedio ocurren `r fmt(t_mvd$media_por_dia, 1)` siniestros por día en Montevideo. La serie diaria (@fig-serie) muestra dos rasgos: una caída marcada cada enero y una tendencia al alza.
+
+```{r}
+#| label: fig-serie
+#| fig-cap: "Siniestros por día en Montevideo y media móvil centrada de 28 días."
+figura("tmp_01_serie_diaria")
+```
+
+```{r}
+#| label: tbl-anual
+#| tbl-cap: "Siniestros por año. 2021 incluye solo julio a diciembre, por eso se compara la tasa por día."
+anual |> mutate(siniestros = fmt(siniestros), por_dia = fmt(por_dia, 1),
+                var_pct = if_else(is.na(var_pct), "–", paste(fmt(var_pct, 1), "%"))) |>
+  kable(col.names = c("Año", "Días", "Siniestros", "Por día", "Variación vs. año anterior"),
+        align = c("l", "r", "r", "r", "r"))
+```
+
+La estacionalidad es estable entre años (@fig-perfil): enero es siempre el mes más bajo (`r fmt(min(tab$tmp_perfil_mensual$por_dia_medio), 1)` siniestros por día en promedio, contra `r fmt(max(tab$tmp_perfil_mensual$por_dia_medio), 1)` en el mes más alto), coherente con la menor circulación durante las vacaciones de verano. A la vez, cada año queda por encima del anterior en casi todos los meses.
+
+```{r}
+#| label: fig-perfil
+#| fig-cap: "Siniestros por día según el mes, un color por año."
+figura("tmp_02_perfil_mensual")
+```
+
+Para cuantificar la tendencia sin que la estacionalidad la distorsione, se ajustó para cada serie mensual un modelo `por_dia ~ tiempo + mes`, automatizado para Montevideo y los 8 municipios con `nest()` + `map()`. En todo Montevideo la tendencia es de `r fmt(t_mvd$pendiente, 2)` siniestros por día más por año (IC 95 %: `r fmt(t_mvd$ic_inf, 2)` a `r fmt(t_mvd$ic_sup, 2)`), un `r fmt(t_mvd$pct_anual, 1)` % anual. La suba no es homogénea (@fig-indice): es más rápida en el municipio `r mun(t_mun$municipio[1])` (`r fmt(t_mun$pct_anual[1], 1)` % anual) y más lenta en el `r mun(t_mun$municipio[nrow(t_mun)])` (`r fmt(t_mun$pct_anual[nrow(t_mun)], 1)` %, p = `r fmt(t_mun$p_valor[nrow(t_mun)], 2)`, el único sin tendencia significativa al 5 %). El E llegó a bajar hasta 2024 y recuperó después.
+
+```{r}
+#| label: fig-indice
+#| fig-cap: "Índice base 100 de la media móvil de 12 meses por municipio (la ventana móvil elimina la estacionalidad)."
+figura("tmp_03_indice_municipios")
+```
+
+```{r}
+#| label: tbl-tendencia
+#| tbl-cap: "Tendencia lineal controlando el mes: cambio en siniestros por día por año."
+tend |> arrange(municipio != "MONTEVIDEO", desc(pct_anual)) |>
+  transmute(municipio = if_else(municipio == "MONTEVIDEO", "Total", mun(municipio)), media = fmt(media_por_dia, 2), pendiente = fmt(pendiente, 3),
+            ic = paste0("[", fmt(ic_inf, 3), "; ", fmt(ic_sup, 3), "]"), pct = fmt(pct_anual, 1),
+            p = if_else(p_valor < 0.001, "< 0,001", fmt(p_valor, 3))) |>
+  kable(col.names = c("Zona", "Media por día", "Pendiente", "IC 95 %", "% anual", "p"),
+        align = c("l", "r", "r", "r", "r", "r"))
+```
+
+# Regresión: ¿calendario o clima?
+
+**Unidad y respuesta.** El día, para todo Montevideo (`r fmt(sum(anual$dias))` observaciones). Se agrega porque por municipio y día la media es de apenas `r fmt(mean(met_mun$media_diaria), 2)` siniestros y la variación es casi toda azar.
+
+**Modelos anidados.** M0: tipo de día. M1: + mes. M2: + temperatura, lluvia, viento y estado del clima. Se ajustan sobre un 70 % de los días elegidos al azar (semilla `r semilla`) y se evalúan sobre el 30 % restante, frente a una referencia mínima: predecir siempre la media.
+
+```{r}
+#| label: tbl-modelos
+#| tbl-cap: "Comparación de modelos. R² y AIC sobre entrenamiento; MAE y RMSE en entrenamiento y prueba."
+comp |> transmute(modelo, parametros = as.character(parametros), R2 = fmt(R2, 3), R2_aj = fmt(R2_aj, 3), AIC = fmt(AIC, 1),
+                  MAE_train = fmt(MAE_train, 2), MAE_test = fmt(MAE_test, 2),
+                  RMSE_train = fmt(RMSE_train, 2), RMSE_test = fmt(RMSE_test, 2)) |>
+  mutate(across(everything(), ~ if_else(grepl("NA", .x), "–", .x))) |>
+  kable(col.names = c("Modelo", "Parám.", "R²", "R² aj.", "AIC", "MAE train", "MAE test",
+                      "RMSE train", "RMSE test"), align = c("l", rep("r", 8)))
+```
+
+El calendario explica casi todo lo que el modelo logra explicar. Agregar el mes mejora claramente el ajuste (F = `r fmt(testf$statistic[2], 1)`, p < 0,001). Agregar el clima suma menos de un punto de R², no resulta significativo al 5 % (F = `r fmt(testf$statistic[3], 2)`, p = `r fmt(testf$p.value[3], 3)`) y empeora levemente el error de prueba (RMSE `r fmt(g("M2", "RMSE_test"), 2)` contra `r fmt(g("M1", "RMSE_test"), 2)`). La consulta `siniestros_por_tipo_dia_clima` lo muestra de forma descriptiva: dentro de cada tipo de día, los días de lluvia no tienen más siniestros que los despejados. El mejor modelo es **M1**: reduce el RMSE de prueba un `r fmt(100 * (1 - g("M1", "RMSE_test") / g("Baseline (media)", "RMSE_test")), 0)` % respecto de predecir la media, pero deja sin explicar alrededor del `r fmt(100 * (1 - g("M1", "R2")), 0)` % de la variación.
+
+Según M1 (@fig-coef), un fin de semana tiene `r fmt(-coef_m("tipo_diafin_semana"), 1)` siniestros menos que un día entre semana y un feriado `r fmt(-coef_m("tipo_diaferiado"), 1)` menos; frente a enero, el resto de los meses suma entre `r fmt(min(coefs$estimate[grepl("^mes", coefs$term)]), 1)` y `r fmt(max(coefs$estimate[grepl("^mes", coefs$term)]), 1)` siniestros por día.
+
+```{r}
+#| label: fig-coef
+#| fig-cap: "Efectos estimados en M1 con intervalo de confianza del 95 %."
+figura("reg_01_coeficientes")
+```
+
+**Diagnóstico** (@fig-diag). Los residuos no muestran patrón contra los valores ajustados. La cola derecha es más pesada que la normal (Shapiro-Wilk p < 0,001): los días con muchos siniestros se subestiman. No se detecta heterocedasticidad (Breusch-Pagan p = `r fmt(diag_m$breusch_pagan_p, 2)`), la varianza residual es `r fmt(diag_m$var_resid_sobre_media, 2)` veces la media (sobredispersión leve respecto de Poisson) y los residuos tienen autocorrelación de orden 1 de `r fmt(diag_m$acf_lag1, 2)`, en línea con la tendencia que el modelo no incluye. Como el modelo solo tiene variables categóricas, las predicciones forman franjas verticales.
+
+```{r}
+#| label: fig-diag
+#| fig-cap: "Diagnóstico de M1: residuos contra ajustados, QQ-plot y observado contra predicho en prueba."
+figura("reg_02_diagnostico")
+```
+
+**Automatización por municipio.** El mismo procedimiento (mismos días de entrenamiento, mismos tres modelos) se repite para los 8 municipios con `nest()`, `map2()` y `possibly()`, después de validar el panel de cada uno. El ajuste es mucho más débil: con 2 a 3,5 siniestros por día, la mejora sobre predecir la media va de `r fmt(min(m1_mun$mejora_pct), 1)` % (`r mun(m1_mun$municipio[nrow(m1_mun)])`) a `r fmt(max(m1_mun$mejora_pct), 1)` % (`r mun(m1_mun$municipio[1])`) para M1 (@fig-mun). M1 es el mejor en `r sum(ganador_mun$modelo == "M1")` municipios y M0 en `r sum(ganador_mun$modelo == "M0")`; M2, el que agrega el clima, no es el mejor en ninguno: confirma, municipio por municipio, que el clima no mejora la predicción.
+
+```{r}
+#| label: fig-mun
+#| fig-cap: "Reducción del RMSE de prueba frente a predecir la media, por municipio y modelo."
+figura("reg_03_municipios")
+```
+
+# Clustering: perfiles de los barrios
+
+**Unidad y variables.** Los 62 barrios, cada uno descrito por siete proporciones calculadas en SQL sobre todos sus siniestros: colisión entre vehículos, despiste, atropello de peatón, caída, grave o fatal, nocturno y fin de semana. Se usan proporciones y no conteos para agrupar por perfil y no por volumen. Se estandarizan (z-score) porque sus desvíos van de `r fmt(min(sd_vars), 3)` a `r fmt(max(sd_vars), 3)`: sin estandarizar, la colisión dominaría la distancia.
+
+**Elección de k.** Se corrió k-means (25 inicios, semilla fija) para k = 2 a 8 con `map()` (@fig-k). La silueta promedio tiene un máximo claro en k = `r k` (`r fmt(barrido$silueta[barrido$k == k], 2)`) y queda en torno a 0,2 para el resto; el codo no es nítido, aunque la mayor caída de la WSS es de 1 a 2 grupos. La partición es idéntica con 30 semillas distintas (Rand ajustado mínimo = `r fmt(estab$rand_ajustado_min, 2)`).
+
+```{r}
+#| label: fig-k
+#| fig-cap: "Método del codo y silueta promedio según k; el círculo rojo marca el k elegido."
+figura("clu_01_eleccion_k")
+```
+
+```{r}
+#| label: tbl-grupos
+#| tbl-cap: "Media de cada variable por grupo (porcentaje de los siniestros del barrio)."
+medias |> mutate(across(starts_with("p_"), ~ fmt(100 * .x, 1))) |>
+  kable(col.names = c("Grupo", "Barrios", "Colisión", "Despiste", "Atrop. peatón", "Caída",
+                      "Grave/fatal", "Nocturno", "Fin de semana"), align = c("l", rep("r", 8)))
+```
+
+```{r}
+#| label: fig-grupos
+#| fig-cap: "Perfil de cada grupo: desvíos respecto de la media de los 62 barrios."
+figura("clu_02_perfil_grupos")
+```
+
+**Lectura.** El grupo 1 (`r medias$barrios[1]` barrios) es la ciudad compacta: tres de cada cuatro siniestros son choques entre vehículos y los atropellos pesan más. El grupo 2 (`r medias$barrios[2]` barrios) tiene más siniestros de un solo vehículo: el despiste casi se triplica (`r fmt(100 * medias$p_despiste[2], 1)` % contra `r fmt(100 * medias$p_despiste[1], 1)` %) y las caídas suben de `r fmt(100 * medias$p_caida[1], 1)` % a `r fmt(100 * medias$p_caida[2], 1)` %, con algo más de casos graves o fatales y de fin de semana. El mapa (@fig-mapa) muestra que el grupo 2 ocupa la franja rural y periurbana del norte y el oeste.
+
+Las variables que no entraron al agrupamiento lo confirman: la densidad mediana es de `r fmt(extern$densidad_mediana[2])` siniestros por km² en el grupo 2 contra `r fmt(extern$densidad_mediana[1])` en el grupo 1 (Kruskal-Wallis p < 0,001), y las avenidas pesan menos (`r fmt(100 * extern$p_avenida_media[2])` % contra `r fmt(100 * extern$p_avenida_media[1])` %; p = `r fmt(pruebas[["avenida"]], 3)`). En cambio, **el volumen total no distingue a los grupos** (mediana `r fmt(extern$siniestros_mediana[2])` contra `r fmt(extern$siniestros_mediana[1])`; p = `r fmt(pruebas[["siniestros"]], 2)`): no es una división entre barrios con muchos y con pocos siniestros, sino entre tipos de siniestro. Los grupos se asocian con el municipio de forma débil (Fisher p = `r fmt(pruebas[["municipio"]], 3)`).
+
+```{r}
+#| label: fig-mapa
+#| fig-cap: "Barrios de Montevideo según el grupo asignado."
+#| out-width: "75%"
+figura("clu_03_mapa")
+```
+
+La estructura es débil: una silueta de `r fmt(estab$silueta_media, 2)` indica una tendencia más que tipos bien separados, y `r nrow(sil_neg)` barrios del grupo `r paste(unique(sil_neg$grupo), collapse = " y ")` (`r paste(tools::toTitleCase(tolower(sil_neg$barrio)), collapse = " y ")`, urbanos y con mucha rambla) tienen silueta negativa, es decir, quedan casi a igual distancia de los dos grupos.
+
+# Limitaciones
+
+- **Siniestros registrados.** Puede haber subregistro, y no necesariamente constante en el tiempo. No hay datos de exposición (tránsito, parque automotor, obras, eventos), así que no se puede separar un aumento del riesgo de un aumento de la circulación. La ventana empieza en plena normalización pospandemia: en todo el archivo, Montevideo pasa de `r fmt(tab$registros_mvd_por_anio$registros[tab$registros_mvd_por_anio$anio == 2019])` registros en 2019 a `r fmt(tab$registros_mvd_por_anio$registros[tab$registros_mvd_por_anio$anio == 2020])` en 2020. Aun así, 2024 y 2025 superan el nivel de 2018–2019, de modo que la tendencia no es solo recuperación.
+- **Regresión.** Se aplica un modelo lineal con supuesto normal a un conteo; un modelo de Poisson o binomial negativa sería más adecuado. El split aleatorio sobre una serie con autocorrelación hace que el error de prueba sea algo optimista. La tendencia detectada en la sección 5 no está en el modelo. `lluvia_mm` y `estado_clima` son casi redundantes.
+- **Clustering.** Las proporciones de tipo están ligadas entre sí (se reparten el mismo total), y `p_grave_fatal` se apoya en pocos casos en los barrios chicos. Los barrios son unidades administrativas de tamaño muy distinto (mediana de `r fmt(extern$area_mediana_km2[2], 1)` km² en el grupo 2 contra `r fmt(extern$area_mediana_km2[1], 1)` en el 1). El perfil resume 4,5 años y no ve cambios en el tiempo. El descriptor de avenidas se calcula por el nombre de la calle, y `r calidad[["sin_calle"]]` siniestros no tienen calle.
+
+# Conclusiones
+
+- **Cuándo.** La siniestralidad diaria depende sobre todo del calendario: menos siniestros los fines de semana, los feriados y en enero. El clima no aporta capacidad predictiva, ni para todo Montevideo ni en ningún municipio. Más allá del calendario hay una tendencia al alza de alrededor de `r fmt(t_mvd$pct_anual, 0)` % anual que el modelo no recoge y que es más fuerte en el municipio `r mun(t_mun$municipio[1])`.
+- **Dónde.** Los barrios se separan en dos perfiles: la ciudad compacta, dominada por choques entre vehículos y atropellos, y la periferia, con más despistes, caídas y casos graves. La diferencia es de tipo de siniestro, no de cantidad.
+- **Descubrimiento del proceso.** El problema de calidad más importante no era el que parecía (las fechas) sino la lectura del archivo: una opción por defecto descartaba silenciosamente bloques de datos. Una validación tan simple como comparar filas leídas contra líneas del archivo lo detecta.
+- **Mejoras posibles.** Usar modelos de conteo (Poisson o binomial negativa) con un término de tendencia y validación temporal (entrenar con el pasado y evaluar con el futuro); incorporar datos de exposición; y estudiar si los perfiles de barrio cambian entre años.
+
+# Reproducibilidad
+
+Todo lo que aparece en este informe se regenera con `Rscript run_all.R` desde los datos originales: el script borra `data/processed/` y `outputs/`, ejecuta `scripts/01` a `05` y vuelve a generar este documento. Las versiones de R y de los paquetes de la última corrida quedan en `outputs/session_info.txt`.
