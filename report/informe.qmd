@@ -1,7 +1,10 @@
 ---
 title: "Siniestralidad vial en Montevideo"
 subtitle: "Un pipeline reproducible: cuándo y dónde ocurren los siniestros (jul 2021 – dic 2025)"
-author: "Grupo — Programación Avanzada para Ciencia de Datos"
+author:
+  - César Carballo
+  - Lucas Pimentel
+  - Victor Uría
 lang: es
 date: today
 date-format: "D [de] MMMM [de] YYYY"
